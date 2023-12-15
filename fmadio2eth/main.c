@@ -291,8 +291,12 @@ int main(int argc, char* argv[])
 	size_t MTU;
 
 	{
-		char* CmdBuf = (char*)malloc(64 + strlen(IFace));
-		sprintf(CmdBuf, "ifconfig %s | sed -n 's/.*mtu \\([0-9]\\+\\).*/\\1/p'", IFace);
+		const char* Fmt = "ifconfig %s | sed -n 's/.*[Mm][Tt][Uu]:\\?[ ]\\?\\([0-9]\\+\\).*/\\1/p'";
+		size_t CmdLen = strlen(Fmt) + strlen(IFace);
+		char* CmdBuf = (char*)malloc(CmdLen);
+		assert(CmdBuf != NULL);
+		memset(CmdBuf, 0, CmdLen);
+		sprintf(CmdBuf, Fmt, IFace);
 		FILE* Pipe = popen(CmdBuf, "r");
 
 		if (Pipe == NULL)
@@ -306,6 +310,7 @@ int main(int argc, char* argv[])
 		fgets(Output, sizeof(Output), Pipe);
 		MTU = (size_t)atoll(Output);
 		pclose(Pipe);
+		assert(MTU > 0);
 		fprintf(stderr, "Packets will be truncated to MTU: %luB\n", MTU);
 	}
 
