@@ -36,7 +36,8 @@
 		return EXIT_SOCKETCLOSE; \
 	}
 
-enum {		
+enum
+{	
 	EXIT_UNKNOWNARG = EXIT_FAILURE + 64,
 	EXIT_MISSINGARG,
 	EXIT_FMADRING,
@@ -52,13 +53,15 @@ enum {
 	EXIT_SOCKETCLOSE,
 };
 
-typedef struct {
+typedef struct
+{
 	struct iovec* RD;
 	u8 *Map;
 	struct tpacket_req Req;
 } TRing_t;
 
-typedef struct {
+typedef struct
+{
 	u64 ReceivedPkt, ReceivedByte;
 	u64 SentPkt, SentByte;
 	u64 FailedPkt, FailedByte;
@@ -305,7 +308,7 @@ int main(int argc, char* argv[])
 			return EXIT_MTU;
 		}
 
-		char Output[5];
+		char Output[6];
 
 		fgets(Output, sizeof(Output), Pipe);
 		MTU = (size_t)atoll(Output);
