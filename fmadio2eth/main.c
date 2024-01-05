@@ -97,13 +97,13 @@ static void PrintStats(Stats_t* Stats)
 {
 	fprintf(stderr, "\nByte counts are in capture length (not wire length) where applicable.\n");
 
-	fprintf(stderr, "Received: %lli packets (%lliB)\n",
+	fprintf(stderr, "Received: %lli packet(s) (%lliB)\n",
 			Stats->ReceivedPkt, Stats->ReceivedByte);
-	fprintf(stderr, "Sent: %lli packets (%lliB)\n",
+	fprintf(stderr, "Sent: %lli packet(s) (%lliB)\n",
 			Stats->SentPkt, Stats->SentByte);
-	fprintf(stderr, "Failed to send: %lli packets (%lliB)\n",
+	fprintf(stderr, "Failed to send: %lli packet(s) (%lliB)\n",
 			Stats->FailedPkt, Stats->FailedByte);
-	fprintf(stderr, "Truncated: %lli packets (%lliB lost in total)\n",
+	fprintf(stderr, "Truncated: %lli packet(s) (%lliB lost in total)\n",
 			Stats->TruncatedPkt, Stats->TruncatedByte);
 }
 
