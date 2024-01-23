@@ -1,6 +1,6 @@
 // Copyright (c) 2023, FMAD Engineering (SNG) Pte. Ltd. 
 // 
-// pcap2fmadio
+// Reads a PCAP file, emits it to an FMADIO ring buffer.
 
 #include <assert.h>
 #include <errno.h>
