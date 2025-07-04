@@ -346,7 +346,7 @@ int main(int argc, char* argv[])
 									   false,
 									   &TS,
 									   &Pkt->LengthWire, &Pkt->LengthCapture,
-									   NULL, Pkt + 1);
+									   NULL, NULL, Pkt + 1);
 
 		if (Result > 0)
 		{

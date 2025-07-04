@@ -50,6 +50,8 @@ typedef struct
 
 } PCAPFile_t;
 
+u32 g_Verbose = 0;
+
 static inline PCAPFile_t* PCAP_Open(u64* PCAPTimeScale)
 {
 	PCAPFile_t* F = (PCAPFile_t*)malloc( sizeof(PCAPFile_t) );
@@ -184,14 +186,17 @@ int main(int argc, char* argv[])
 	int CPU = -1;
 	u8* RingPath = NULL;
 
+	bool EnableEOFPacket	= true; 	// send EOF packet at the end of the file
+	bool SendEOFPacket		= false; 	// send an EOF packet only 
+	u64 TxTimeoutNS 		= 30e6;		// default to 30sec timeout
+
 	for (int i = 0; i < argc; ++i)
 	{
 		if (strcmp(argv[i], "-i") == 0)
 		{
 			if ((i + 1) >= argc)
 			{
-				fprintf(stderr,
-					"argument `-i` expects a following file path argument");
+				fprintf(stderr, "argument `-i` expects a following file path argument");
 
 				return 1;
 			}
@@ -199,19 +204,34 @@ int main(int argc, char* argv[])
 			RingPath = argv[i + 1];
 			i += 1;
 		}
+		else if (strcmp(argv[i], "-v") == 0)
+		{
+			g_Verbose = 1;
+			fprintf(stderr, "Verbose mode\n");
+		}
 		else if (strcmp(argv[i], "--cpu") == 0)
 		{
 			if ((i + 1) >= argc)
 			{
-				fprintf(stderr,
-					"argument `--cpu` expects a following integer argument");
+				fprintf(stderr, "argument `--cpu` expects a following integer argument");
 				return 1;
 			}
-
-			CPU = atoi(argv[i + 1]);
 			fprintf(stderr, "Will pin thread to CPU %i.\n", CPU);
 			i += 1;
 		}
+		// disables sending the EOF packet down the ring
+		else if (strcmp(argv[i], "--disable-eof") == 0)
+		{
+			fprintf(stderr, "Disable EOF packet\n");
+			EnableEOFPacket = false;
+		}
+		// send an EOF only 
+		else if (strcmp(argv[i], "--send-eof") == 0)
+		{
+			fprintf(stderr, "Send EOF packet only\n");
+			SendEOFPacket 	= true;
+		}
+
 		else if (strcmp(argv[i], "--help") == 0)
 		{
 			PrintHelp();
@@ -236,6 +256,22 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	// send an EOF only .e.g. after a number of pcaps have been sent
+	if (SendEOFPacket)
+	{
+		// open the ring
+		int PFD;
+		fFMADRingHeader_t* Ring;
+		int Result = FMADPacket_OpenTx(&PFD, &Ring, false, RingPath, false, TxTimeoutNS);
+		if (Result < 0) return 3;
+
+		// send eof
+		FMADPacket_SendEOFV1(Ring, Ring->PutPktTS);
+
+		fprintf(stderr, "sent EOF packet only PuTS:%lli GetTS:%lli\n", Ring->PutPktTS, Ring->GetPktTS );
+		return 0;
+	}
+
 	u64 TimeScale;
 	PCAPFile_t* PCAPFile = PCAP_Open(&TimeScale);
 
@@ -245,33 +281,64 @@ int main(int argc, char* argv[])
 	int PFD = -1;
 	fFMADRingHeader_t* Ring = NULL;
 	
-	int Result = FMADPacket_OpenTx(&PFD, &Ring, false, RingPath, false, 1e6);
+	int Result = FMADPacket_OpenTx(&PFD, &Ring, false, RingPath, false, TxTimeoutNS);
+	if (Result < 0) return 3;
 
-	if (Result < 0)
-		return 3;
+	u64 TotalPkt 	= 0;
+	u64 TotalByte 	= 0;
 
+	u64 NextPrintTSC = rdtsc() + ns2tsc(1e9);
 	while (true)
 	{
+		// fetch from pcap file
 		PCAPPacket_t* Pkt = PCAP_Read(PCAPFile);
 
+		// error condition or end of the pcap 
 		if (Pkt == NULL)
 		{
-			FMADPacket_SendEOFV1(Ring, PCAPFile->TS);
+			// send EOF packet down the ring, this signals the peer to exit
+			if (EnableEOFPacket)
+			{
+				FMADPacket_SendEOFV1(Ring, PCAPFile->TS);
+			}
+
 			fprintf(stderr, "Reached end of PCAP file.\n");
 			return 0;
 		}
 
-		u64 TS = PCAP_TimeStamp(Pkt, TimeScale, 0 /* No time zone offset yet */);
+		// validate its a valid packet (e.g. not captured with TCPDUMP GSO GRO enabled)
+		bool IsValid = true;
+		if (Pkt->LengthCapture >= 12*102)	IsValid = false;
+		if (Pkt->LengthCapture < 60 )		IsValid = false;
 
-		FMADPacket_SendV1(
-			Ring,
-			TS,
-			Pkt->LengthWire,
-			Pkt->LengthCapture,
-			(u32)-1, /* port argument goes unused */
-			Pkt + 1);
+		if (IsValid)
+		{
+			// convert timestamp to nanos
+			u64 TS = PCAP_TimeStamp(Pkt, TimeScale, 0 /* No time zone offset yet */);
 
-		PCAPFile->TS = TS;
+			// send down the ring
+			FMADPacket_SendV1(
+				Ring,
+				TS,
+				Pkt->LengthWire,
+				Pkt->LengthCapture,
+				(u32)0, 				// assume port 0 
+				(u32)0, 				// packet flag
+				(u64)0,					// no storage ID
+				Pkt + 1);
+
+			PCAPFile->TS = TS;
+		}
+
+		if (g_Verbose > 0)
+		{
+			u64 TSC = rdtsc();
+			if (TSC > NextPrintTSC)
+			{
+				fprintf(stderr, "TotalPacket:%16lli TotalByte:%16lli\n", TotalPkt, TotalByte);
+				NextPrintTSC = rdtsc() + ns2tsc(1e9);
+			}
+		}
 	}
 
 	return 0;

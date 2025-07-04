@@ -92,6 +92,7 @@ static void ndelay(u64 ns)
 #define FMADRING_ENTRYCNT		(1*1024)			// number of entries in the ring 
 
 #define FMADRING_FLAG_EOF		(1<<0)				// end of file exit
+#define FMADRING_FLAG_FCSERR	(1<<1)				// packet has an FCS error 
 
 typedef struct fFMADRingPacket_t
 {
@@ -104,8 +105,7 @@ typedef struct fFMADRingPacket_t
 	u8				pad1;
 	u8				pad2;
 
-	u32				pad3;
-	u32				pad4;
+	u64				StorageID;						// Storage ID
 
 	u8				Payload[FMADRING_ENTRYSIZE];	// payload ensure each entry is 10KB
 
@@ -229,6 +229,10 @@ static inline int FMADPacket_OpenTx(	int* 				pfd,
 
 		// copy path for debug 
 		strncpy(RING->Path, Path, sizeof(RING->Path));
+
+		// fixed settings
+		RING->IsTxFlowControl	= IsFlowControl;	
+		RING->TxTimeout			= TimeoutNS;	
 	}
 
 	// check everything matches 
@@ -240,9 +244,6 @@ static inline int FMADPacket_OpenTx(	int* 				pfd,
 	fprintf(stderr, "RING[%-50s] Put:%llx %llx %p\n", RING->Path, RING->Put, RING->Put & RING->Mask, &RING->Put);
 	fprintf(stderr, "RING[%-50s] Get:%llx %llx %p\n", RING->Path, RING->Get, RING->Get & RING->Mask, &RING->Get);
 
-	// settings
-	RING->IsTxFlowControl	= IsFlowControl;	
-	RING->TxTimeout			= TimeoutNS;	
 
 	// update files
 	if (pfd) 	pfd[0] 		= fd;
@@ -363,6 +364,8 @@ static inline int FMADPacket_SendV1(	fFMADRingHeader_t* 	RING,
 										u32 				LengthWire,
 										u32 				LengthCapture,
 										u32 				Port,
+										u32					Flag,
+										u64					StorageID,
 										void*	 			Payload
 									)
 {
@@ -389,7 +392,8 @@ static inline int FMADPacket_SendV1(	fFMADRingHeader_t* 	RING,
 	FPkt->LengthWire		= LengthWire;
 	FPkt->LengthCapture		= LengthCapture;
 	FPkt->Port				= 0; 
-	FPkt->Flag				= 0; 
+	FPkt->Flag				= Flag; 
+	FPkt->StorageID			= StorageID; 
 	memcpy(&FPkt->Payload[0], Payload, LengthCapture);
 
 	sfence();
@@ -443,13 +447,15 @@ static inline int FMADPacket_SendEOFV1(	fFMADRingHeader_t* 	RING, u64 TS)
 
 //---------------------------------------------------------------------------------------------
 // get a packet non-zero copy way but simple interface 
-static inline int FMADPacket_RecvV1(	fFMADRingHeader_t* RING, 
-											bool IsWait,
-											u64*		pTS,	
-											u32*		pLengthWire,	
-											u32*		pLengthCapture,	
-											u32*		pPort,	
-											void*		Payload	
+static inline int FMADPacket_RecvV1a(	fFMADRingHeader_t* RING, 
+										bool IsWait,
+										u64*		pTS,	
+										u32*		pLengthWire,	
+										u32*		pLengthCapture,	
+										u32*		pPort,	
+										u32*		pFlag,	
+										u64*		pStorageID,	
+										void*		Payload	
 										) 
 {
 	fFMADRingPacket_t* Pkt = NULL;
@@ -484,6 +490,8 @@ static inline int FMADPacket_RecvV1(	fFMADRingHeader_t* RING,
 	if (pLengthWire) 	pLengthWire[0] 		= Pkt->LengthWire;
 	if (pLengthCapture) pLengthCapture[0] 	= Pkt->LengthCapture;
 	if (pPort)			pPort[0]			= Pkt->Port;
+	if (pFlag)			pFlag[0]			= Pkt->Flag;
+	if (pStorageID)		pStorageID[0]		= Pkt->StorageID;
 	if (Payload)		memcpy(Payload, Pkt->Payload, Pkt->LengthCapture);
 
 	//sfence();
@@ -495,6 +503,22 @@ static inline int FMADPacket_RecvV1(	fFMADRingHeader_t* RING,
 
 	return Pkt->LengthCapture;
 }
+
+// backwards compat
+static inline int FMADPacket_RecvV1(	fFMADRingHeader_t* RING, 
+										bool 		IsWait,
+										u64*		pTS,	
+										u32*		pLengthWire,	
+										u32*		pLengthCapture,	
+										u32*		pPort,	
+										u32*		pFlag,	
+										void*		Payload	
+									) 
+{
+
+	return FMADPacket_RecvV1a(RING, IsWait, pTS, pLengthWire, pLengthCapture, pPort, pFlag, NULL, Payload);
+}
+
 
 //---------------------------------------------------------------------------------------------
 // set/get the pending bytes 
